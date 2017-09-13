@@ -103,7 +103,7 @@ func TestWriteClosed(t *testing.T) {
 		})
 
 		echo.m.HandleDisconnect(func(s *Session) {
-			err := s.Write([]byte("hello world"))
+			_, err := s.Write([]byte("hello world"))
 
 			if err == nil {
 				t.Error("should be an error")
