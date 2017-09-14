@@ -1,6 +1,7 @@
 package melody
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"sync"
@@ -12,6 +13,12 @@ var (
 	ErrMelodyClosed        = errors.New("melody instance is closed")
 	ErrMelodyAlreadyClosed = errors.New("melody instance is already closed")
 )
+
+type contextKey string
+
+func (c contextKey) String() string {
+	return "melody context key " + string(c)
+}
 
 // Close codes defined in RFC 6455, section 11.7.
 // Duplicate of codes from gorilla/websocket for convenience.
@@ -163,11 +170,6 @@ func (m *Melody) HandleClose(fn func(*Session, int, string) error) {
 
 // HandleRequest upgrades http requests to websocket connections and dispatches them to be handled by the melody instance.
 func (m *Melody) HandleRequest(w http.ResponseWriter, r *http.Request) error {
-	return m.HandleRequestWithKeys(w, r, nil)
-}
-
-// HandleRequestWithKeys does the same as HandleRequest but populates session.Keys with keys.
-func (m *Melody) HandleRequestWithKeys(w http.ResponseWriter, r *http.Request, keys map[string]interface{}) error {
 	if m.hub.closed() {
 		return ErrMelodyClosed
 	}
@@ -180,7 +182,6 @@ func (m *Melody) HandleRequestWithKeys(w http.ResponseWriter, r *http.Request, k
 
 	session := &Session{
 		Request: r,
-		Keys:    keys,
 		conn:    conn,
 		output:  make(chan *envelope, m.Config.MessageBufferSize),
 		melody:  m,
@@ -205,6 +206,23 @@ func (m *Melody) HandleRequestWithKeys(w http.ResponseWriter, r *http.Request, k
 	m.disconnectHandler(session)
 
 	return nil
+}
+
+func newRequestWithContextKey(r *http.Request, key string, value interface{}) *http.Request {
+	return r.WithContext(context.WithValue(r.Context(), contextKey(key), value))
+}
+
+func newRequestWithContextKeys(r *http.Request, keys map[string]interface{}) *http.Request {
+	var ctx context.Context = r.Context()
+	for key, val := range keys {
+		ctx = context.WithValue(ctx, contextKey(key), val)
+	}
+	return r.WithContext(ctx)
+}
+
+// HandleRequestWithKeys does the same as HandleRequest but populates session.Keys with keys.
+func (m *Melody) HandleRequestWithKeys(w http.ResponseWriter, r *http.Request, keys map[string]interface{}) error {
+	return m.HandleRequest(w, newRequestWithContextKeys(r, keys))
 }
 
 // Broadcast broadcasts a text message to all sessions.
